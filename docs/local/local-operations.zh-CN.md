@@ -26,11 +26,71 @@
 | 依赖 | 工作区没有 `node_modules`，尚未执行 `pnpm i` |
 | 环境文件 | 根目录没有 `.env`。存在 `.env.example`、`.env.example.development`、`.env.desktop`。`docker-compose/dev/` 只有 `.env.example` |
 
-因此当前检出 **还不能直接启动**。先补齐下面的缺口，再走「源码开发」或「Compose 部署」。
+因此当前检出 **还不能直接启动**。下面两条路径任选一条，不必两条都做。
 
 组织 fork：`https://github.com/lgq-open-source/lobehub`。本地远程名 `lgq`。日常改动推到 `lgq`，不要推到 `origin`（上游 `lobehub/lobehub`）。
 
+本机已经按文末「安装部署实况」跑过一遍。端口、项目名和当前停着哪一套，以那一节为准，不要照前面示例里的 `5432`、`6379`、`9000` 直接启动。
+
+## 本地和 Docker 是什么关系
+
+可以只用本机源码，也可以只用 Docker。两者都是在这台机器上得到一个能打开的 LobeHub，差别是 **网站进程放在哪**。它们不是「先本地、再 Docker」的流水线。
+
+Docker 在两条路径里都会出现，担任的角色不一样：
+
+| | 路径 A：源码开发 | 路径 B：Compose 部署 |
+| --- | --- | --- |
+| 你打开的地址 | `http://localhost:3010` | `http://localhost:3210` |
+| LobeHub 进程 | 本机的 Node。命令是 `bun run dev`，改代码会热更新 | 容器 `lobehub`。默认镜像是 Docker Hub 上的 `lobehub/lobehub`，不读当前工作区 |
+| PostgreSQL、Redis、RustFS、SearXNG | 也在 Docker 里，由 `bun run dev:docker` 单独拉起。这一步 **没有** 网站 | 和应用、网关在同一份 `docker-compose/deploy/docker-compose.yml` 里一起拉起 |
+| Agent / Device Gateway | 这份开发编排不包含 `lobe-gateway` | 包含，`8787` / `8788` |
+| 要不要装 Node、pnpm、Bun | 要。依赖装在本机 `node_modules` | 直接用官方镜像时不要。只有「用当前源码打镜像」才要 |
+| 配置文件 | 仓库根目录 `.env`，外加 `docker-compose/dev/.env` | 只有 `docker-compose/deploy/.env` |
+| 数据 | 开发库，卷和 `docker-compose/dev/data` | 另一套卷。两条路径的库 **不会** 自动共用 |
+
+可以把它看成两套彼此独立的层，不要叠在一起跑：
+
+```text
+路径 A（改源码）
+  浏览器 → 本机 Node :3010
+              ↓
+           Docker 只跑 PostgreSQL / Redis / RustFS / SearXNG
+           文件：docker-compose/dev/docker-compose.yml
+
+路径 B（整套容器）
+  浏览器 → 容器 lobehub :3210
+              ↓
+           同一份 Compose 里还有 PostgreSQL / Redis / RustFS / SearXNG / Gateway
+           文件：docker-compose/deploy/docker-compose.yml
+```
+
+路径 A 里的 Docker 只是给本机进程当数据库和对象存储。停掉 `bun run dev` 之后，容器还在，但浏览器里没有网站。反过来，只执行 `bun run dev:docker` 也打不开界面。
+
+路径 B 里的 Docker 才是完整产品：网站、数据库、存储、搜索、网关都在容器里。不需要 `pnpm i`，也不需要 `bun run dev`。容器里跑的是已经发布的版本，工作区里刚改的文件不会进那个容器。
+
+### 为什么不要同时开
+
+两份 compose 都写了 `name: lobehub`，并共用这些容器名：`lobe-postgres`、`lobe-redis`、`lobe-rustfs`、`lobe-rustfs-init`、`lobe-searxng`。Docker 不允许同名容器各跑一份，宿主机上的 `5432`、`6379`、`9000`、`9001`、`8180` 也会被先启动的那一边占用。
+
+从一条路径换到另一条时，先停掉正在跑的那一套，再启动另一套。开发库里的对话不会出现在部署库里。
+
+### 另外两种容易和这两条搞混的跑法
+
+**只把界面接到线上。** `bun run dev:spa` 之后终端里的 Debug Proxy，是本地 Vite 配 `app.lobehub.com` 的后端。它不用本机的 Next，也不用路径 B 的容器。只能看界面，不能验证本仓库的服务端。
+
+**本机生产进程。** `bun run build` 然后 `bun run start` 仍然是本机 Node，端口 `3210`，没有热更新。数据库还得另有一份，通常继续用路径 A 已经起来的 PostgreSQL。这不是路径 B：没有 `lobehub` 容器，也没有 gateway 容器。
+
+**用当前源码做镜像，再放进路径 B。** `bun run self-hosting:docker` 打出 `lobehub:local` 之后，把部署 compose 的镜像改成它再 `up`。这时跑的是容器，不再是 `bun run dev`。构建期间路径 A 可以停着；启动这份 compose 之前，路径 A 的同名容器必须先停。
+
+### 怎么选
+
+- 要改这个仓库的界面或服务端：路径 A。
+- 只想在这台机器上用一套私有化 LobeHub，不编译源码：路径 B。Node 和 Bun 可以先不装。
+- 要确认「我改过的代码打进镜像之后」能否起来：停掉路径 A，构建 `lobehub:local`，再走路径 B。
+
 ## 先补齐的工具
+
+路径 B 只要第 4 项 Docker Desktop。Node、pnpm、Bun 是路径 A 需要的；用当前源码打镜像时也需要它们。
 
 1. **Node.js 24**。仓库 `.nvmrc` 与 Docker 构建都指向 Node 24 这一代。本机目前是 22.23.3，安装依赖前先切到 24，再在仓库根目录确认 `node -v`。
 2. **pnpm 12.4.1**。已可用时不必重装。若 `pnpm` 不在 PATH：
@@ -53,7 +113,7 @@
 
 ## 路径 A：源码开发
 
-在 `D:\lgq\ai-work\lobehub` 执行。PowerShell 没有 `cp`，用 `Copy-Item`。
+网站跑在本机，Docker 只提供数据库和存储。在 `D:\lgq\ai-work\lobehub` 执行。PowerShell 没有 `cp`，用 `Copy-Item`。若路径 B 的容器已在运行，先到 `docker-compose/deploy` 执行 `docker compose down`，避免同名容器和端口冲突。
 
 ### 1. 安装依赖
 
@@ -197,7 +257,7 @@ bun run check src/path/to/file.ts
 
 ## 路径 B：用 Docker Compose 跑服务
 
-这条路径使用已发布镜像 `lobehub/lobehub`，不编译当前工作区。配置在 `docker-compose/deploy/`。
+网站、数据库、存储和网关都在容器里。默认使用已发布镜像 `lobehub/lobehub`，不编译当前工作区，也不使用路径 A 的 `.env` 和开发库。配置在 `docker-compose/deploy/`。若路径 A 已启动，先执行 `bun run dev:docker:down`。
 
 官方一键脚本是 Bash：
 
@@ -293,20 +353,120 @@ bun run start
 | --- | --- |
 | 拉上游（在跟踪 `origin` 的 `canary` 上） | `git pull --rebase` |
 | 把文档或改动推到组织 fork | `git push lgq HEAD` |
-| 停开发依赖 | `bun run dev:docker:down` |
-| 停部署栈 | 在 `docker-compose/deploy` 执行 `docker compose down` |
+| 停路径 A 依赖 | 见文末实况里的 `lobehub-dev` `down`。不要用 `bun run dev:docker:down`，那个项目名是 `lobehub`，对不上这次的卷 |
+| 停路径 B | 见文末实况里的 `lobehub-deploy` `down`。不要加 `-v` |
 | 清依赖后重装 | `bun run clean:node_modules`，然后 `pnpm i`（脚本内部调用 bash） |
 
 从上游更新 fork 时，在本地 `canary` 上先 `git pull --rebase`（远程是 `origin`），再把需要保留的提交推到 `lgq`。不要对 `lobehub/lobehub` 做 force push。
 
-## 和本机现状的对应关系
+## 安装部署实况
 
-按 2026-11-04 的核对，要在这台机器上第一次把界面跑起来，顺序是：
+记录时间：2026-11-04。工作区 `D:\lgq\ai-work\lobehub`，分支 `docs/local-operations`，基线提交 `d34f58ed`。下面是这台机器上实际发生的事，不是上游文档的理想步骤。
 
-1. 安装 Node 24 与 Bun，启动 Docker Desktop。
-2. `pnpm i`。
-3. 复制两份开发用 `.env`，写入模型密钥。
-4. `bun run dev:docker`，然后 `pnpm db:migrate`。
-5. `bun run dev`，打开 `http://localhost:3010`。
+### 开始时缺什么
 
-要的是一套不编译源码的私有化服务时，走路径 B，并避开与开发栈冲突的 `5432` / `6379`。
+- Node 已有 `v22.23.3`（x64）。`.nvmrc` 写的是 `lts/krypton`，Dockerfile 用 Node 24。`nvm install 24` 去下 `24.9.0-arm64`，镜像站没有这个包，所以没有换成 Node 24。后来的登录页是在 22.23.3 上打开的。
+- pnpm 通过 Corepack 使用仓库锁定的 `12.4.1`。
+- Bun 一开始不在 PATH。安装脚本装上了 `1.4.4`（`%USERPROFILE%\.bun\bin\bun.exe`）。这个安装程序把用户 PATH 写成了带 `REG_SZ` 前缀的坏值，随后已去掉该前缀，并把 Bun 目录留在用户 PATH 里。
+- Docker 客户端 `29.8.2` 已在，引擎没启动。拉起 Docker Desktop 之后 `docker info` 才通。
+- 没有 `node_modules`，没有根目录 `.env`，也没有 `docker-compose/dev/.env`。
+
+### 安装依赖时踩到的点
+
+第一次 `pnpm i` 在根目录 `prepare` 失败：脚本是 `git rev-parse ... || true`，cmd 没有 `true`，`/dev/null` 也不是 Windows 路径。包已经下完，安装被判失败。
+
+处理：在临时目录放一个 `true.cmd`，内容是 `@exit /b 0`，把它加到本次命令的 PATH 最前面，再执行 `pnpm i`。第二次 `Done in 6.8s`，退出码 0。
+
+环境文件只做了复制，没有提交：
+
+```powershell
+Copy-Item .env.example.development .env
+Copy-Item docker-compose\dev\.env.example docker-compose\dev\.env
+```
+
+根目录 `.env` 里的 `DATABASE_URL` 改成了 `localhost:5433`。Redis 和 RustFS 后来改成 `localhost:6380`、`http://localhost:9010`。密钥仍是开发示例里的值，不能用于生产。
+
+### 不能占用的已有端口
+
+项目 `deploy` 里原来就有这些容器，全程没有停、也没有连它们的库：
+
+| 容器 | 宿主机端口 | 状态 |
+| --- | --- | --- |
+| `certification_postgres` | `5432` | 一直在跑 |
+| `certification_redis` | `6379` | 当时是停着的，端口仍算它的 |
+| `minio-server` | `9000`，另外还有一个端口 | 停着，端口仍算它的 |
+
+所以 LobeHub 没有使用 `5432`、`6379`、`9000`、`9001`。
+
+### 路径 A：先跑通
+
+Compose 项目名用 `-p lobehub-dev`，这样卷是 `lobehub-dev_redis_data` 和 `lobehub-dev_rustfs-data`，不会和别的项目混。PostgreSQL 数据在 `docker-compose/dev/data`（绑定挂载，不跟项目名走）。
+
+`docker-compose/dev/host-ports.yml` 被 git 忽略，内容是：
+
+```yaml
+services:
+  postgresql:
+    ports: !override
+      - '5433:5432'
+  redis:
+    ports: !override
+      - '6380:6379'
+  network-service:
+    ports: !override
+      - '9010:9000'
+      - '9011:9001'
+```
+
+第一次拉起时还只覆盖了 `5433`，Redis 用了 `6379`，RustFS 用了 `9000`。路径 B 也这样绑过，和上面的已有容器冲突。最后一次启动路径 A 之前改成了上表，并且不再把 `3210` 映射出来。
+
+实际启动：
+
+```powershell
+docker compose -p lobehub-dev -f docker-compose/dev/docker-compose.yml -f docker-compose/dev/host-ports.yml --env-file docker-compose/dev/.env up -d --wait postgresql redis rustfs searxng
+pnpm db:migrate
+bun run dev
+```
+
+`pnpm db:migrate` 输出 `database migration pass`，大约 33 秒。随后在这个库里建了标记表 `path_isolation_marker`，插入 `path-a-dev`。`bun run dev` 选了 Next `3010`、Vite `9876`。浏览器打开 `http://localhost:3010/signin`，登录页渲染完成，请求返回 200。
+
+### 路径 B：换一套库跑通，然后停掉
+
+停路径 A 时用 `down`，没有 `-v`。`docker-compose/dev/data/PG_VERSION` 还在，`lobehub-dev_*` 卷也还在。
+
+路径 B 使用 `-p lobehub-deploy`。PostgreSQL 数据在 `docker-compose/deploy/data`，和开发库不是同一个目录。宿主机端口当时只把数据库改成了 `5434`，应用容器内部仍是 `postgresql:5432`。`docker-compose/deploy/.env` 按示例生成过密钥，文件被 git 忽略，这里不记录密钥内容。
+
+`docker compose up -d --wait` 成功。`docker logs lobehub` 里有 `database migration pass` 和 Next Ready。`http://localhost:3210/signin` 登录页返回 200。在这个库里查 `path_isolation_marker`，表不存在。
+
+随后发现路径 B 的 Redis 发布在 `6379`、RustFS 发布在 `9000`，和已有的 `certification_redis`、`minio-server` 冲突。按要求把路径 B 整套停掉，只留路径 A：
+
+```powershell
+docker compose -p lobehub-deploy -f docker-compose/deploy/docker-compose.yml -f docker-compose/deploy/host-ports.yml --env-file docker-compose/deploy/.env down
+```
+
+没有加 `-v`。`lobehub-deploy_redis_data`、`lobehub-deploy_rustfs-data` 和 `docker-compose/deploy/data` 都还在。
+
+### 现在留着什么
+
+只跑路径 A。`docker ps` 里 LobeHub 相关容器是：
+
+| 容器 | 宿主机端口 |
+| --- | --- |
+| `lobe-postgres` | `5433` |
+| `lobe-redis` | `6380` |
+| `lobe-network`（RustFS 的端口从这里出去） | `9010`、`9011` |
+| `lobe-searxng` | `8180` |
+| `lobe-rustfs` | 不单独映射，走 `lobe-network` |
+
+开发服务器听 `3010`。`certification_postgres` 仍在 `5432`。路径 B 没有容器在跑。开发库里的 `path-a-dev` 还在。
+
+再开路径 A（路径 B 已经停着时）：
+
+```powershell
+docker compose -p lobehub-dev -f docker-compose/dev/docker-compose.yml -f docker-compose/dev/host-ports.yml --env-file docker-compose/dev/.env up -d --wait postgresql redis rustfs searxng
+bun run dev
+```
+
+再开路径 B 之前，必须先停 `bun run dev` 和 `lobehub-dev`，并且给 Redis、RustFS 另选宿主机端口（例如 `6381`、`9020`、`9021`）。现在的 `docker-compose/deploy/host-ports.yml` 只把数据库改到了 `5434`，直接 `up` 会再次占用 `6379` 和 `9000`。两条路径的容器名相同，不能同时存在。
+
+`bun run dev:docker` 不带 `-p`，项目名会落成 compose 文件里的 `lobehub`，数据库端口也是 `5432`。这台机器不要用这条快捷命令。
