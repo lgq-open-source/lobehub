@@ -6,7 +6,7 @@
   },
   "dialect": "postgresql",
   "enums": {},
-  "id": "a534aaa7-b478-410e-9f02-f69256c3e85d",
+  "id": "846dff72-c7f0-42b5-82ce-1c9f661a94ed",
   "policies": {},
   "prevId": "be44ceb9-0874-47bd-9473-386a5c55c022",
   "roles": {},
@@ -36979,7 +36979,7 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "workspace_id": {
           "name": "workspace_id",
@@ -37145,7 +37145,7 @@
           "tableTo": "users",
           "columnsFrom": ["user_id"],
           "columnsTo": ["id"],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "task_labels_workspace_id_workspaces_id_fk": {

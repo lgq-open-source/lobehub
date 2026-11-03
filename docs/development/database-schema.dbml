@@ -4343,7 +4343,7 @@ table task_label_links {
 
 table task_labels {
   id uuid [pk, not null, default: `gen_random_uuid()`]
-  user_id text [not null]
+  user_id text
   workspace_id text
   parent_id uuid
   is_group boolean [not null, default: false]

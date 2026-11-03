@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS "task_label_links" (
 --> statement-breakpoint
 CREATE TABLE IF NOT EXISTS "task_labels" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"user_id" text NOT NULL,
+	"user_id" text,
 	"workspace_id" text,
 	"parent_id" uuid,
 	"is_group" boolean DEFAULT false NOT NULL,
@@ -31,7 +31,7 @@ ALTER TABLE "task_label_links" ADD CONSTRAINT "task_label_links_user_id_users_id
 ALTER TABLE "task_label_links" DROP CONSTRAINT IF EXISTS "task_label_links_workspace_id_workspaces_id_fk";--> statement-breakpoint
 ALTER TABLE "task_label_links" ADD CONSTRAINT "task_label_links_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "task_labels" DROP CONSTRAINT IF EXISTS "task_labels_user_id_users_id_fk";--> statement-breakpoint
-ALTER TABLE "task_labels" ADD CONSTRAINT "task_labels_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "task_labels" ADD CONSTRAINT "task_labels_user_id_users_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."users"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "task_labels" DROP CONSTRAINT IF EXISTS "task_labels_workspace_id_workspaces_id_fk";--> statement-breakpoint
 ALTER TABLE "task_labels" ADD CONSTRAINT "task_labels_workspace_id_workspaces_id_fk" FOREIGN KEY ("workspace_id") REFERENCES "public"."workspaces"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "task_labels" DROP CONSTRAINT IF EXISTS "task_labels_parent_id_task_labels_id_fk";--> statement-breakpoint
